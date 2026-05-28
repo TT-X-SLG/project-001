@@ -70,7 +70,7 @@ export default function PlayerScreen() {
             Overcoming Anxiety through Faith
           </Text>
           <Text selectable style={styles.subtitle}>
-            Led by Pastor David · 12 mins
+            Led by Pastor David - 12 mins
           </Text>
         </View>
 
