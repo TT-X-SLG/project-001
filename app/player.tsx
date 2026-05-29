@@ -19,12 +19,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors } from "@/constants/colors";
+import { useSubscription } from "@/hooks/use-subscription";
+import { trackAnalyticsEvent } from "@/services/analytics/analytics-client";
 
 export default function PlayerScreen() {
   const router = useRouter();
+  const { entitlements, isLoading } = useSubscription();
   const [isPlaying, setIsPlaying] = useState(false);
   const PlayStateIcon = isPlaying ? Pause : Play;
   const paywallRoute = "/paywall" as Href;
+  const canPlayPremiumContent = entitlements.premium;
 
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
@@ -104,15 +108,25 @@ export default function PlayerScreen() {
           <TouchableOpacity
             accessibilityLabel={isPlaying ? "Pause prayer" : "Play prayer"}
             activeOpacity={0.78}
+            disabled={isLoading}
             onPress={() => {
-              if (!isPlaying) {
+              if (isPlaying) {
+                setIsPlaying(false);
+                return;
+              }
+
+              if (!canPlayPremiumContent) {
+                void trackAnalyticsEvent("premium_gate_hit", {
+                  content_id: "guided_prayer_anxiety",
+                  source: "player_play",
+                });
                 router.push(paywallRoute);
                 return;
               }
 
-              setIsPlaying(false);
+              setIsPlaying(true);
             }}
-            style={styles.playButton}
+            style={[styles.playButton, isLoading && styles.disabledPlayButton]}
           >
             <PlayStateIcon
               color={colors.background}
@@ -318,6 +332,9 @@ const styles = StyleSheet.create({
     height: 78,
     justifyContent: "center",
     width: 78,
+  },
+  disabledPlayButton: {
+    opacity: 0.58,
   },
   transcriptCard: {
     backgroundColor: colors.surface,

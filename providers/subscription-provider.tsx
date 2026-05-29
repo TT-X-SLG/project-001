@@ -12,10 +12,19 @@ import {
   placeholderSubscriptionClient,
   type SubscriptionClient,
 } from "@/services/subscriptions/subscription-client";
-import type { SubscriptionStatus } from "@/types/subscription";
+import type {
+  SubscriptionPlan,
+  SubscriptionPlanId,
+  SubscriptionStatus,
+} from "@/types/subscription";
 
 type SubscriptionContextValue = SubscriptionStatus & {
+  errorMessage: string | null;
+  isPurchasing: boolean;
+  offerings: SubscriptionPlan[];
+  purchase: (planId: SubscriptionPlanId) => Promise<void>;
   refresh: () => Promise<void>;
+  restorePurchases: () => Promise<void>;
 };
 
 const defaultStatus: SubscriptionStatus = {
@@ -37,10 +46,67 @@ export function SubscriptionProvider({
   client = placeholderSubscriptionClient,
 }: SubscriptionProviderProps) {
   const [status, setStatus] = useState<SubscriptionStatus>(defaultStatus);
+  const [offerings, setOfferings] = useState<SubscriptionPlan[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isPurchasing, setIsPurchasing] = useState(false);
 
   const refresh = useCallback(async () => {
-    setStatus((current) => ({ ...current, isLoading: true }));
-    setStatus(await client.getStatus());
+    try {
+      setErrorMessage(null);
+      setStatus((current) => ({ ...current, isLoading: true }));
+
+      const [nextStatus, nextOfferings] = await Promise.all([
+        client.getStatus(),
+        client.getOfferings(),
+      ]);
+
+      setStatus(nextStatus);
+      setOfferings(nextOfferings);
+    } catch (error) {
+      setStatus((current) => ({ ...current, isLoading: false }));
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to refresh subscription status.",
+      );
+    }
+  }, [client]);
+
+  const purchase = useCallback(
+    async (planId: SubscriptionPlanId) => {
+      try {
+        setErrorMessage(null);
+        setIsPurchasing(true);
+
+        const result = await client.purchase(planId);
+        setStatus(result.subscriptionStatus);
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to complete purchase.",
+        );
+      } finally {
+        setIsPurchasing(false);
+      }
+    },
+    [client],
+  );
+
+  const restorePurchases = useCallback(async () => {
+    try {
+      setErrorMessage(null);
+      setIsPurchasing(true);
+      setStatus(await client.restorePurchases());
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to restore purchases.",
+      );
+    } finally {
+      setIsPurchasing(false);
+    }
   }, [client]);
 
   useEffect(() => {
@@ -50,9 +116,22 @@ export function SubscriptionProvider({
   const value = useMemo(
     () => ({
       ...status,
+      errorMessage,
+      isPurchasing,
+      offerings,
+      purchase,
       refresh,
+      restorePurchases,
     }),
-    [status],
+    [
+      errorMessage,
+      isPurchasing,
+      offerings,
+      purchase,
+      refresh,
+      restorePurchases,
+      status,
+    ],
   );
 
   return (

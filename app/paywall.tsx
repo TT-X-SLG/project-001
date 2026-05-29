@@ -1,6 +1,6 @@
 import { Stack, useRouter } from "expo-router";
 import { Check, X } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -11,39 +11,80 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors } from "@/constants/colors";
-
-type PlanId = "yearly" | "monthly";
-
-type Plan = {
-  id: PlanId;
-  name: string;
-  price: string;
-  badge?: string;
-};
+import { useSubscription } from "@/hooks/use-subscription";
+import { trackAnalyticsEvent } from "@/services/analytics/analytics-client";
+import type {
+  SubscriptionPlan,
+  SubscriptionPlanId,
+} from "@/types/subscription";
 
 const featureBullets = [
-  "🔓 Unlock 1,000+ Guided Prayers & Audio Bibles",
-  "🔔 Personalized Daily Prayer Reminders & Streaks",
-  "🎵 Exclusive Offline Peaceful Christian Soundscapes",
+  "Unlock 1,000+ guided prayers and audio Bible sessions",
+  "Personalized daily prayer reminders and faith streaks",
+  "Offline peaceful Christian soundscapes for focus and rest",
 ] as const;
-
-const plans: Plan[] = [
-  {
-    id: "yearly",
-    name: "Yearly Access",
-    price: "$59.99 / year ($4.99/mo)",
-    badge: "BEST VALUE",
-  },
-  {
-    id: "monthly",
-    name: "Monthly Access",
-    price: "$9.99 / month",
-  },
-];
 
 export default function PaywallScreen() {
   const router = useRouter();
-  const [selectedPlan, setSelectedPlan] = useState<PlanId>("yearly");
+  const {
+    entitlements,
+    errorMessage,
+    isLoading,
+    isPurchasing,
+    offerings,
+    purchase,
+    restorePurchases,
+  } = useSubscription();
+  const [selectedPlan, setSelectedPlan] =
+    useState<SubscriptionPlanId>("yearly");
+  const hasTrackedPaywallView = useRef(false);
+
+  const selectedOffering = useMemo(
+    () => offerings.find((plan) => plan.id === selectedPlan),
+    [offerings, selectedPlan],
+  );
+  const isBusy = isLoading || isPurchasing;
+
+  useEffect(() => {
+    if (hasTrackedPaywallView.current) {
+      return;
+    }
+
+    hasTrackedPaywallView.current = true;
+    void trackAnalyticsEvent("paywall_viewed", {
+      default_plan_id: selectedPlan,
+      has_premium: entitlements.premium,
+    });
+  }, [entitlements.premium, selectedPlan]);
+
+  useEffect(() => {
+    if (entitlements.premium) {
+      router.back();
+    }
+  }, [entitlements.premium, router]);
+
+  const handlePlanPress = (planId: SubscriptionPlanId) => {
+    setSelectedPlan(planId);
+    void trackAnalyticsEvent("paywall_plan_selected", {
+      plan_id: planId,
+    });
+  };
+
+  const handlePurchasePress = async () => {
+    void trackAnalyticsEvent("paywall_purchase_started", {
+      plan_id: selectedPlan,
+    });
+    await purchase(selectedPlan);
+    void trackAnalyticsEvent("paywall_purchase_completed", {
+      plan_id: selectedPlan,
+    });
+  };
+
+  const handleRestorePress = async () => {
+    void trackAnalyticsEvent("paywall_restore_started");
+    await restorePurchases();
+    void trackAnalyticsEvent("paywall_restore_completed");
+  };
 
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
@@ -93,20 +134,42 @@ export default function PaywallScreen() {
         </View>
 
         <View style={styles.planStack}>
-          {plans.map((plan) => (
+          {offerings.map((plan) => (
             <PlanCard
               key={plan.id}
               isSelected={selectedPlan === plan.id}
-              onPress={() => setSelectedPlan(plan.id)}
+              onPress={() => handlePlanPress(plan.id)}
               plan={plan}
             />
           ))}
         </View>
 
         <View style={styles.footer}>
-          <TouchableOpacity activeOpacity={0.82} style={styles.ctaButton}>
+          {errorMessage ? (
+            <Text selectable style={styles.errorText}>
+              {errorMessage}
+            </Text>
+          ) : null}
+          <TouchableOpacity
+            activeOpacity={0.82}
+            disabled={isBusy || !selectedOffering}
+            onPress={handlePurchasePress}
+            style={[styles.ctaButton, isBusy && styles.disabledButton]}
+          >
             <Text selectable style={styles.ctaText}>
-              Start 3-Day Free Trial & Subscribe
+              {isPurchasing
+                ? "Starting Trial..."
+                : "Start 3-Day Free Trial & Subscribe"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.72}
+            disabled={isBusy}
+            onPress={handleRestorePress}
+            style={styles.restoreButton}
+          >
+            <Text selectable style={styles.restoreText}>
+              Restore Purchases
             </Text>
           </TouchableOpacity>
           <Text selectable style={styles.legalText}>
@@ -125,7 +188,7 @@ function PlanCard({
 }: {
   isSelected: boolean;
   onPress: () => void;
-  plan: Plan;
+  plan: SubscriptionPlan;
 }) {
   return (
     <TouchableOpacity
@@ -140,6 +203,11 @@ function PlanCard({
         <Text selectable style={styles.planPrice}>
           {plan.price}
         </Text>
+        {plan.description ? (
+          <Text selectable style={styles.planDescription}>
+            {plan.description}
+          </Text>
+        ) : null}
       </View>
 
       {plan.badge ? (
@@ -285,6 +353,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 21,
   },
+  planDescription: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   badge: {
     alignSelf: "flex-start",
     backgroundColor: colors.olive,
@@ -302,6 +375,13 @@ const styles = StyleSheet.create({
     gap: 11,
     paddingTop: 2,
   },
+  errorText: {
+    color: colors.error,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+    textAlign: "center",
+  },
   ctaButton: {
     alignItems: "center",
     backgroundColor: colors.text,
@@ -311,11 +391,26 @@ const styles = StyleSheet.create({
     minHeight: 58,
     paddingHorizontal: 18,
   },
+  disabledButton: {
+    opacity: 0.62,
+  },
   ctaText: {
     color: colors.background,
     fontSize: 16,
     fontWeight: "900",
     lineHeight: 22,
+    textAlign: "center",
+  },
+  restoreButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 38,
+  },
+  restoreText: {
+    color: colors.olive,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
     textAlign: "center",
   },
   legalText: {

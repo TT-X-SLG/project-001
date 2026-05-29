@@ -20,26 +20,26 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "@/constants/colors";
 
 type JourneyItem = {
-  title: string;
-  subtitle: string;
   icon: LucideIcon;
+  subtitle: string;
+  title: string;
 };
 
 const journeyItems: JourneyItem[] = [
   {
-    title: "Daily Word",
-    subtitle: "5 min Read",
     icon: BookOpen,
+    subtitle: "5 min Read",
+    title: "Daily Word",
   },
   {
-    title: "Guided Prayer",
-    subtitle: "10 min Audio",
     icon: Headphones,
+    subtitle: "10 min Audio",
+    title: "Guided Prayer",
   },
   {
-    title: "Nightly Reflection",
-    subtitle: "Not started",
     icon: Moon,
+    subtitle: "Not started",
+    title: "Nightly Reflection",
   },
 ];
 
@@ -103,7 +103,7 @@ export default function HomeScreen() {
               Today's Spiritual Journey
             </Text>
             <Text selectable style={styles.sectionSubtitle}>
-              今日灵修流
+              Daily devotional path
             </Text>
           </View>
 
